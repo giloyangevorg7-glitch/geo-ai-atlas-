@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="hy">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Geo AI</title>
+<!-- Set content to your deployed backend URL if the backend is hosted on another origin; leave empty when server/server.js serves this page -->
+<meta name="geoai-api" content="">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --bg:#0b1d2a; --glass:rgba(18,40,56,.55); --glass-b:rgba(255,255,255,.16);
+  --text:#eaf4f7; --muted:#9db6c2; --accent:#4fd1c5; --accent2:#f6ad55; --danger:#fc8181;
+  --blur:blur(18px) saturate(160%); --r:22px;
+}
+:root[data-theme="light"]{
+  --bg:#e9f1f4; --glass:rgba(255,255,255,.6); --glass-b:rgba(255,255,255,.9);
+  --text:#12303d; --muted:#4f6b78; --accent:#0e8f86; --accent2:#c05621; --danger:#c53030;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{font-family:"Noto Sans Armenian","Noto Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+#map{position:fixed;inset:0;z-index:0;background:var(--bg)}
+.glass{background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--glass-b);box-shadow:0 8px 32px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.18);border-radius:var(--r)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* top bar */
+#top{position:fixed;z-index:1000;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;right:10px;display:flex;gap:8px;align-items:flex-start;max-width:640px}
+#searchwrap{flex:1;position:relative;min-width:0}
+#search{display:flex;align-items:center;gap:8px;padding:0 6px 0 16px;height:52px}
+#q{flex:1;min-width:0;background:none;border:0;color:var(--text);font:inherit;font-size:16px}
+#q::placeholder{color:var(--muted)}
+.ic{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;flex:none;font-size:18px}
+.ic:hover{background:rgba(255,255,255,.12)}
+#sugg{position:absolute;top:58px;left:0;right:0;overflow:hidden;display:none;max-height:50vh;overflow-y:auto}
+#sugg.open{display:block}
+#sugg button{display:block;width:100%;text-align:left;padding:12px 16px;border-bottom:1px solid var(--glass-b)}
+#sugg button:last-child{border-bottom:0}
+#sugg button:hover,#sugg button:focus-visible{background:rgba(255,255,255,.1)}
+#sugg small{display:block;color:var(--muted);margin-top:2px}
+#sugg .hd{padding:10px 16px 4px;color:var(--muted);font-size:13px}
+.tools{display:flex;gap:6px;padding:6px;height:52px;align-items:center}
+.tools .ic{width:38px;height:38px;font-size:15px;font-weight:600}
+
+/* right controls */
+#ctl{position:fixed;z-index:1000;right:10px;top:calc(env(safe-area-inset-top,0px) + 74px);display:flex;flex-direction:column;gap:8px}
+#ctl .glass{width:48px;height:48px;display:grid;place-items:center;font-size:20px;border-radius:16px}
+#ctl .glass.on{outline:2px solid var(--accent)}
+#layers{position:fixed;z-index:1001;right:66px;top:calc(env(safe-area-inset-top,0px) + 74px);padding:8px;display:none;flex-direction:column;min-width:150px}
+#layers.open{display:flex}
+#layers button{padding:10px 12px;border-radius:12px;text-align:left}
+#layers button.on{background:var(--accent);color:#06232a;font-weight:600}
+
+/* nav */
+#nav{position:fixed;z-index:1000;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 10px);display:flex;gap:2px;padding:6px;max-width:calc(100vw - 20px);overflow-x:auto}
+#nav button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 12px;border-radius:16px;font-size:12px;min-width:62px;white-space:nowrap}
+#nav button .e{font-size:20px}
+#nav button.on{background:var(--accent);color:#06232a;font-weight:600}
+#nav button[disabled]{opacity:.5;cursor:not-allowed}
+#nav button[disabled] i{font-style:normal;font-size:10px;color:var(--muted)}
+
+/* place card */
+#card{position:fixed;z-index:1000;left:10px;top:calc(env(safe-area-inset-top,0px) + 74px);width:min(380px,calc(100vw - 80px));max-height:calc(100vh - 190px);overflow:auto;padding:18px;display:none}
+#card.open{display:block}
+#card h2{font-size:22px;line-height:1.25;padding-right:64px}
+#card .kind{color:var(--accent);margin:2px 0 10px;font-weight:600}
+#card dl{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px}
+#card dt{color:var(--muted)}
+#card dd{word-break:break-word}
+#card .acts{position:absolute;top:10px;right:10px;display:flex}
+#card .note{margin-top:14px;padding:10px 12px;border-radius:14px;background:rgba(246,173,85,.14);font-size:13px;color:var(--text)}
+#card .src{margin-top:10px;font-size:12px;color:var(--muted)}
+#card .src a{color:var(--accent)}
+#media{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin:0 0 14px}
+#media figure{display:flex;flex-direction:column;gap:4px}
+#media img{max-height:84px;max-width:150px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,.08);padding:3px}
+#media figcaption{font-size:12px;color:var(--muted)}
+#media .anthem{flex:1 1 100%}
+#media audio{width:100%;height:36px;margin-top:4px}
+#media a{color:var(--accent);font-size:12px}
+#toast{position:fixed;z-index:2000;left:50%;top:calc(env(safe-area-inset-top,0px) + 76px);transform:translateX(-50%);padding:10px 16px;border-radius:14px;display:none;max-width:90vw}
+#toast.show{display:block}
+
+@media (max-width:640px){
+  #card{left:10px;right:10px;width:auto;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 86px);max-height:42vh}
+}
+.leaflet-control-zoom,.leaflet-control-attribution{display:none}
+.leaflet-container .attr{position:fixed;left:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 2px);font-size:10px;color:var(--muted);z-index:900}
+@media (prefers-reduced-motion:no-preference){ #card.open,#sugg.open,#layers.open{animation:in .18s ease-out} @keyframes in{from{opacity:0;transform:translateY(6px)}} }
+/* ---- PHASE 2 ---- */
+.pane{position:fixed;z-index:1000;left:10px;top:calc(env(safe-area-inset-top,0px) + 74px);width:min(430px,calc(100vw - 80px));max-height:calc(100vh - 190px);overflow:auto;padding:16px;display:none}
+.pane.open{display:block}
+#chat.open{display:flex;flex-direction:column;gap:10px;height:min(580px,calc(100vh - 190px));overflow:hidden}
+#cmp{width:min(580px,calc(100vw - 80px))}
+.phd{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.phd h2{font-size:20px}
+.pill{padding:8px 14px;border-radius:999px;background:var(--accent);color:#06232a;font-weight:600}
+.pill[disabled]{opacity:.5;cursor:not-allowed}
+.spin{width:18px;height:18px;border:2px solid var(--glass-b);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
+.spin.big{width:28px;height:28px;margin:14px auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+#search.busy>span{display:none}
+#search.busy::before{content:'';width:18px;height:18px;border:2px solid var(--glass-b);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;flex:none}
+.empty{padding:14px 16px}.empty b{display:block}.empty small{color:var(--muted)}
+.intro p{line-height:1.55;font-size:15px}
+.intro .src{margin-top:6px}
+.aiout{margin-top:8px;white-space:pre-wrap;font-size:14px;line-height:1.5}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:12px 0}
+.stat{padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.08)}
+.stat small{display:block;color:var(--muted);font-size:12px}
+.stat b{font-weight:600;font-size:15px;word-break:break-word}
+.stat.wide{grid-column:1/-1}
+.sec{border-top:1px solid var(--glass-b);padding:8px 0}
+.sec summary{cursor:pointer;font-weight:600;padding:6px 0;list-style:none}
+.sec summary::-webkit-details-marker{display:none}
+.sec summary::before{content:'▸ ';color:var(--accent)}
+.sec[open] summary::before{content:'▾ '}
+.sbody{font-size:14px;line-height:1.55;white-space:pre-line}
+.sbody .li{display:flex;justify-content:space-between;gap:8px;width:100%;padding:8px 10px;border-radius:12px;text-align:left}
+.sbody .li:hover{background:rgba(255,255,255,.1)}
+.sbody .li small{color:var(--muted);white-space:nowrap}
+.sbody a,.src a{color:var(--accent)}
+.msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px;min-height:120px}
+.m{padding:10px 12px;border-radius:14px;max-width:94%;font-size:14px;line-height:1.5;white-space:pre-wrap}
+.m.user{align-self:flex-end;background:var(--accent);color:#06232a}
+.m.bot{align-self:flex-start;background:rgba(255,255,255,.1)}
+.m.sys{font-size:13px;color:var(--muted)}
+.m .ok{border-left:3px solid var(--accent);padding-left:8px;margin:2px 0}
+.m .ex{border-left:3px solid #90cdf4;padding-left:8px;margin:2px 0}
+.m .un{border-left:3px solid var(--accent2);padding-left:8px;margin:2px 0}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{padding:6px 10px;border-radius:999px;border:1px solid var(--glass-b);font-size:13px;text-align:left}
+#chatf{display:flex;gap:8px}
+#chatf input,.slot input{flex:1;min-width:0;height:42px;border-radius:14px;border:1px solid var(--glass-b);background:rgba(255,255,255,.08);color:var(--text);padding:0 12px;font:inherit;font-size:16px}
+.slots{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.slot{display:flex;flex-direction:column;gap:6px;min-width:0}
+.slot .pill{font-size:12px;padding:6px 8px}
+.sl button{display:block;width:100%;text-align:left;padding:8px 10px;border-radius:10px;font-size:13px}
+.sl button:hover{background:rgba(255,255,255,.1)}
+.sl small{display:block;color:var(--muted)}
+.chead{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.ccard{padding:10px;border-radius:14px;background:rgba(255,255,255,.08);text-align:center;min-width:0}
+.ccard img{max-height:46px;max-width:100%;border-radius:6px}
+.ccard b{display:block;margin-top:4px;word-break:break-word}
+.ccard small{color:var(--muted)}
+.crow{padding:8px 0;border-top:1px solid var(--glass-b);font-size:14px}
+.crow>small{display:block;color:var(--muted);margin-bottom:4px}
+.cvals{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cv{min-width:0;word-break:break-word}
+.bar{height:6px;border-radius:3px;background:var(--accent);margin-top:4px;min-width:2px}
+.cv:nth-child(2) .bar{background:var(--accent2)}
+@media (max-width:640px){
+  #card{max-height:62vh}
+  .pane,#cmp{left:10px;right:10px;width:auto;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 86px);max-height:66vh}
+  #chat.open{height:66vh}
+}
+
+/* ---- PHASE 3: real Wikimedia Commons photo gallery ---- */
+#photos{position:fixed;z-index:1002;inset:10px 10px 78px 10px;display:none;overflow:auto;padding:14px;max-width:1100px;margin:auto}
+#photos.open{display:block;animation:in .2s ease-out}
+.photo-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.photo-head h2{font-size:20px}
+.photo-actions,.photo-filters{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.photo-actions button,.photo-filters button,.photo-filters select{border:1px solid var(--glass-b);border-radius:999px;padding:8px 11px;background:rgba(255,255,255,.08);color:var(--text);font:inherit;font-size:13px}
+.photo-filters button.on{background:var(--accent);color:#06232a;border-color:transparent}
+.photo-filters select{max-width:155px}
+#photoStatus{font-size:13px;color:var(--muted);padding:9px 2px}
+#photoGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:118px;grid-auto-flow:dense;gap:10px}
+.photo-tile{position:relative;overflow:hidden;border-radius:16px;border:1px solid var(--glass-b);background:rgba(255,255,255,.07);padding:0;min-width:0}
+.photo-tile:nth-child(5n+1){grid-row:span 2}
+.photo-tile:nth-child(7n+3){grid-column:span 2}
+.photo-tile img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s}
+.photo-tile:hover img{transform:scale(1.045)}
+.photo-tile span{position:absolute;left:0;right:0;bottom:0;padding:22px 9px 8px;text-align:left;font-size:12px;background:linear-gradient(transparent,rgba(0,0,0,.78));color:white}
+.photo-skeleton{background:linear-gradient(100deg,rgba(255,255,255,.04) 20%,rgba(255,255,255,.13) 40%,rgba(255,255,255,.04) 60%);background-size:200% 100%;animation:shimmer 1.3s infinite}
+@keyframes shimmer{to{background-position:-200% 0}}
+#photoMore{display:block;margin:14px auto 2px;padding:10px 18px}
+#photoViewer{position:fixed;z-index:3000;inset:0;background:rgba(1,9,15,.94);display:none;align-items:center;justify-content:center;padding:16px}
+#photoViewer.open{display:flex}
+#photoViewer .viewer-box{width:min(1100px,100%);height:min(92vh,900px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px}
+.viewer-top,.viewer-bottom{display:flex;justify-content:space-between;align-items:center;gap:8px;color:#f4fbff}
+.viewer-top button,.viewer-bottom button,.viewer-nav{border:1px solid rgba(255,255,255,.25);border-radius:12px;padding:9px 12px;background:rgba(255,255,255,.1);color:white}
+.viewer-stage{position:relative;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#viewerImg{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center;transition:transform .15s}
+.viewer-nav{position:absolute;top:50%;transform:translateY(-50%);font-size:22px}
+#viewerPrev{left:4px}#viewerNext{right:4px}
+#viewerMeta{font-size:12px;color:#c5d4dc;line-height:1.45;overflow:auto;max-height:100px}
+#viewerMeta a{color:#75e5dc}
+@media(max-width:640px){
+ #photos{inset:auto 8px calc(env(safe-area-inset-bottom,0px) + 76px);max-height:70vh;padding:11px}
+ #photoGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:105px;gap:7px}
+ .photo-head h2{font-size:17px}
+ #photoViewer{padding:8px}
+ #photoViewer .viewer-box{height:94vh}
+ .viewer-bottom{align-items:flex-start;flex-wrap:wrap}
+}
+@media(prefers-reduced-motion:reduce){.photo-tile img,.photo-skeleton{animation:none;transition:none}}
+
+.ai-connect .pill{border:1px solid var(--glass-b);padding:9px 13px;border-radius:14px;background:rgba(79,209,197,.16);font-size:13px}.ai-connect .pill:active{transform:scale(.98)}
+</style>
+</head>
+<body>
+<div id="map" aria-label="Map"></div>
+
+<div id="top">
+  <div id="searchwrap">
+    <form id="search" class="glass" role="search" autocomplete="off">
+      <span aria-hidden="true">🔎</span>
+      <input id="q" type="search" aria-label="search" autocomplete="off" spellcheck="false">
+      <button class="ic" type="button" id="clear" aria-label="clear" hidden>✕</button>
+    </form>
+    <div id="sugg" class="glass" role="listbox"></div>
+  </div>
+  <div class="tools glass">
+    <button class="ic" id="lang" aria-label="language">HY</button>
+    <button class="ic" id="theme" aria-label="theme">🌙</button>
+  </div>
+</div>
+
+<div id="ctl">
+  <button class="glass" id="zin" aria-label="zoom in">＋</button>
+  <button class="glass" id="zout" aria-label="zoom out">－</button>
+  <button class="glass" id="locate" aria-label="locate">◎</button>
+  <button class="glass" id="layerbtn" aria-label="layers">▦</button>
+  <button class="glass" id="full" aria-label="fullscreen">⛶</button>
+</div>
+<div id="layers" class="glass"></div>
+
+<aside id="card" class="glass" aria-live="polite"></aside>
+<section id="chat" class="glass pane" aria-label="AI"></section>
+<section id="cmp" class="glass pane" aria-label="Compare"></section>
+<section id="photos" class="glass" aria-label="Real photo gallery">
+  <div class="photo-head"><h2 id="photoTitle">📷 Photos</h2><div class="photo-actions">
+    <button id="photoRefresh" type="button">↻ Refresh</button><button id="photoClose" type="button">✕</button>
+  </div></div>
+  <div class="photo-filters" id="photoCategories"></div>
+  <div class="photo-filters" style="margin-top:8px">
+    <select id="photoSource" aria-label="Photo source"><option value="commons">Wikimedia Commons</option></select>
+    <select id="photoSort" aria-label="Sort photos"><option value="relevance">Relevance</option><option value="recent">Recently updated</option></select>
+    <button id="photoAgain" type="button">Search again</button>
+  </div>
+  <div id="photoStatus" aria-live="polite">Search for a place to load real photographs.</div>
+  <div id="photoGrid"></div><button id="photoMore" class="pill" type="button" hidden>Load more</button>
+</section>
+<div id="photoViewer" role="dialog" aria-modal="true" aria-label="Photo viewer">
+ <div class="viewer-box">
+  <div class="viewer-top"><span id="viewerCount"></span><div><button id="viewerZoomOut" type="button">−</button> <button id="viewerZoomIn" type="button">＋</button> <button id="viewerClose" type="button">✕</button></div></div>
+  <div class="viewer-stage"><button class="viewer-nav" id="viewerPrev" type="button">‹</button><img id="viewerImg" alt=""><button class="viewer-nav" id="viewerNext" type="button">›</button></div>
+  <div class="viewer-bottom"><div id="viewerMeta"></div><button id="viewerOriginal" type="button">Open original ↗</button></div>
+ </div>
+</div>
+<div id="toast" class="glass" role="status"></div>
+<nav id="nav" class="glass"></nav>
+<div class="attr" id="attr"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(() => {
+'use strict';
+
+/* ---------- i18n ---------- */
+const I18N = {
+  hy:{ph:'Որոնել երկիր, քաղաք, լեռ, գետ…',map:'Քարտեզ',info:'Տեղեկ.',photos:'Լուսանկ.',time:'Ժամանակ',weather:'Եղանակ',learn:'Ուսուցում',
+    soon:'Փուլ',std:'Սովորական',sat:'Արբանյակ',dark:'Մութ',relief:'Ռելիեֆ',recent:'Վերջին որոնումները',fav:'Սիրված վայրեր',
+    none:'Ոչինչ չգտնվեց',err:'Որոնման սխալ։ Ստուգեք ինտերնետ կապը։',type:'Տեսակ',addr:'Հասցե',coord:'Կոորդինատներ',
+    country:'Երկիր',osm:'OSM ID',copy:'Պատճենել',copied:'Պատճենվեց',loc:'Տեղորոշումը հասանելի չէ',loading:'Բեռնվում է…',
+    note:'Սա Nominatim-ի (OpenStreetMap) հիմնական տվյալներն են։ Մանրամասն AI նկարագրությունը կավելացվի PHASE 2-ում։',
+    source:'Աղբյուր',empty:'Սեղմեք քարտեզի վրա կամ որոնեք վայր։',unnamed:'Անանուն վայր',fsoff:'Ամբողջ էկրանը հասանելի չէ'},
+  ru:{ph:'Найти страну, город, гору, реку…',map:'Карта',info:'Инфо',photos:'Фото',time:'Время',weather:'Погода',learn:'Учёба',
+    soon:'Фаза',std:'Обычная',sat:'Спутник',dark:'Тёмная',relief:'Рельеф',recent:'Недавние запросы',fav:'Избранное',
+    none:'Ничего не найдено',err:'Ошибка поиска. Проверьте подключение.',type:'Тип',addr:'Адрес',coord:'Координаты',
+    country:'Страна',osm:'OSM ID',copy:'Копировать',copied:'Скопировано',loc:'Геолокация недоступна',loading:'Загрузка…',
+    note:'Это базовые данные Nominatim (OpenStreetMap). Подробное AI-описание появится в ФАЗЕ 2.',
+    source:'Источник',empty:'Нажмите на карту или найдите место.',unnamed:'Безымянное место',fsoff:'Полный экран недоступен'},
+  en:{ph:'Search a country, city, mountain, river…',map:'Map',info:'Info',photos:'Photos',time:'Time',weather:'Weather',learn:'Learn',
+    soon:'Phase',std:'Standard',sat:'Satellite',dark:'Dark',relief:'Relief',recent:'Recent searches',fav:'Favorites',
+    none:'Nothing found',err:'Search failed. Check your connection.',type:'Type',addr:'Address',coord:'Coordinates',
+    country:'Country',osm:'OSM ID',copy:'Copy',copied:'Copied',loc:'Location unavailable',loading:'Loading…',
+    note:'This is basic Nominatim (OpenStreetMap) data. The detailed AI description arrives in PHASE 2.',
+    source:'Source',empty:'Tap the map or search for a place.',unnamed:'Unnamed place',fsoff:'Fullscreen is unavailable'}
+};
+const LANGS=['hy','ru','en'];
+
+/* ---------- state ---------- */
+const $=s=>document.querySelector(s);
+const store={
+  get(k,d){try{return JSON.parse(localStorage.getItem('geoai.'+k))??d}catch{return d}},
+  set(k,v){try{localStorage.setItem('geoai.'+k,JSON.stringify(v))}catch{}}
+};
+let lang=store.get('lang','hy'), theme=store.get('theme','dark'), layerKey=store.get('layer','std');
+let history_=store.get('history',[]), favs=store.get('favs',[]), current=null, marker=null;
+const t=k=>I18N[lang][k]||(U[lang]&&U[lang][k])||k;
+
+/* ---------- map ---------- */
+const LAYERS={
+  std:{url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',attr:'© OpenStreetMap',max:19},
+  sat:{url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',attr:'Esri World Imagery',max:18},
+  dark:{url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',attr:'© OpenStreetMap, © CARTO',max:19},
+  relief:{url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',attr:'© OpenStreetMap, SRTM, © OpenTopoMap',max:17}
+};
+const map=L.map('map',{zoomControl:false,minZoom:2,worldCopyJump:true,maxBounds:[[-85,-Infinity],[85,Infinity]],maxBoundsViscosity:.8,zoomSnap:.5}).setView([30,20],3);
+let base=null;
+function setLayer(k){
+  layerKey=k;store.set('layer',k);
+  if(base)map.removeLayer(base);
+  const l=LAYERS[k];
+  base=L.tileLayer(l.url,{maxZoom:l.max,subdomains:'abc',attribution:l.attr,keepBuffer:2}).addTo(map);
+  $('#attr').textContent=l.attr;
+  renderLayers();
+}
+function renderLayers(){
+  const box=$('#layers');box.innerHTML='';
+  for(const k of Object.keys(LAYERS)){
+    const b=document.createElement('button');b.textContent=t(k);b.className=k===layerKey?'on':'';
+    b.onclick=()=>{setLayer(k);box.classList.remove('open')};box.append(b);
+  }
+}
+
+/* ---------- geocoding (Nominatim, real data) ---------- */
+const NOM='https://nominatim.openstreetmap.org';
+async function nom(path,params){
+  const u=new URL(NOM+path);
+  Object.entries({format:'jsonv2','accept-language':lang,addressdetails:1,extratags:1,polygon_geojson:1,polygon_threshold:.01,...params}).forEach(([k,v])=>u.searchParams.set(k,v));
+  const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json();
+}
+const kindOf=p=>{
+  const c=(p.category||p.class||''),ty=p.type||'';
+  return ty?ty.replace(/_/g,' '):c;
+};
+const nameOf=p=>p.name||(p.display_name||'').split(',')[0]||t('unnamed');
+
+/* ---------- search UI ---------- */
+const q=$('#q'),sugg=$('#sugg'),clr=$('#clear');
+let timer=null,ctrl=null;
+function openSugg(html){sugg.innerHTML='';sugg.append(...html);sugg.classList.add('open')}
+function hdr(txt){const d=document.createElement('div');d.className='hd';d.textContent=txt;return d}
+function item(title,sub,fn){
+  const b=document.createElement('button');b.type='button';b.setAttribute('role','option');
+  b.append(document.createTextNode(title));
+  if(sub){const s=document.createElement('small');s.textContent=sub;b.append(s)}
+  b.onclick=fn;return b;
+}
+function showDefaults(){
+  const out=[];
+  if(favs.length){out.push(hdr('★ '+t('fav')));favs.slice(0,5).forEach(f=>out.push(item(f.name,f.sub,()=>goTo(f))))}
+  if(history_.length){out.push(hdr(t('recent')));history_.slice(0,6).forEach(f=>out.push(item(f.name,f.sub,()=>goTo(f))))}
+  out.length?openSugg(out):sugg.classList.remove('open');
+}
+q.addEventListener('focus',()=>{if(!q.value.trim())showDefaults()});
+q.addEventListener('input',()=>{
+  clr.hidden=!q.value;clearTimeout(timer);
+  const v=q.value.trim();
+  if(v.length<2){showDefaults();return}
+  timer=setTimeout(()=>runSearch(v),450);
+});
+$('#search').addEventListener('submit',e=>{
+  e.preventDefault();const v=q.value.trim();if(!v)return;
+  if(ai.ok&&(v.includes('?')||v.split(/\s+/).length>=5)){sugg.classList.remove('open');q.blur();setPanel('ai');sendChat(v);return}
+  runSearch(v,true);
+});
+function cancelSearch(){ctrl&&ctrl.abort();$('#search').classList.remove('busy')}
+clr.onclick=()=>{cancelSearch();q.value='';clr.hidden=true;q.focus();showDefaults()};
+q.addEventListener('keydown',e=>{if(e.key==='Escape'){cancelSearch();sugg.classList.remove('open')}});
+document.addEventListener('click',e=>{if(!$('#searchwrap').contains(e.target))sugg.classList.remove('open')});
+
+async function runSearch(v,pickFirst){
+  ctrl&&ctrl.abort();ctrl=new AbortController();const my=ctrl;
+  $('#search').classList.add('busy');
+  openSugg([hdr(t('loading'))]);
+  try{
+    const u=new URL(NOM+'/search');
+    Object.entries({format:'jsonv2',q:v,limit:5,'accept-language':lang,addressdetails:1,extratags:1,polygon_geojson:1,polygon_threshold:.01}).forEach(([k,x])=>u.searchParams.set(k,x));
+    const r=await fetch(u,{signal:ctrl.signal});if(!r.ok)throw new Error(r.status);
+    const res=await r.json();
+    let places=res.map(toPlace);
+    if(!places.length)places=await wdSearch(v,my.signal);
+    if(!places.length){noResults(v);return}
+    if(pickFirst){sugg.classList.remove('open');goTo(places[0]);return}
+    openSugg(places.map(p=>item(p.name,p.sub,()=>goTo(p))));
+  }catch(e){if(e.name!=='AbortError')openSugg([hdr(t('err'))])}
+  finally{if(ctrl===my)$('#search').classList.remove('busy')}
+}
+function toPlace(p){
+  const a=p.address||{};
+  return{name:nameOf(p),sub:(p.display_name||'').split(',').slice(1,4).join(',').trim(),
+    lat:+p.lat,lon:+p.lon,bbox:p.boundingbox&&p.boundingbox.map(Number),kind:kindOf(p),
+    full:p.display_name,geo:p.geojson,wd:(p.extratags||{}).wikidata||'',wp:(p.extratags||{}).wikipedia||'',at:p.addresstype||'',typ:p.type||'',cat:p.category||'',country:a.country||'',osm:p.osm_type?p.osm_type[0].toUpperCase()+p.osm_id:'',id:p.osm_type+p.osm_id};
+}
+
+/* ---------- show a place ---------- */
+function goTo(p){
+  sugg.classList.remove('open');q.value=p.name;clr.hidden=false;q.blur();
+  if(p.bbox&&p.bbox.length===4){
+    const[s,n,w,e]=p.bbox;map.flyToBounds([[s,w],[n,e]],{maxZoom:12,duration:1.1,padding:[40,40]});
+  }else map.flyTo([p.lat,p.lon],10,{duration:1.1});
+  placeMarker(p);showCard(p);drawArea(p);
+  photoState.place=p;
+  $('#photoTitle').textContent='📷 '+p.name+' — '+(lang==='ru'?'Фотографии':lang==='hy'?'Լուսանկարներ':'Photos');
+  photoState.category='All';renderPhotoCategories();loadPhotos(true);
+  history_=[{name:p.name,sub:p.sub,lat:p.lat,lon:p.lon,bbox:p.bbox,kind:p.kind,full:p.full,country:p.country,osm:p.osm,wd:p.wd,wp:p.wp,at:p.at,typ:p.typ,cat:p.cat,id:p.id},...history_.filter(h=>h.id!==p.id)].slice(0,12);
+  store.set('history',history_);
+}
+function placeMarker(p){
+  if(marker)map.removeLayer(marker);
+  marker=L.circleMarker([p.lat,p.lon],{radius:9,color:'#fff',weight:3,fillColor:'#4fd1c5',fillOpacity:1}).addTo(map);
+}
+/* ---------- area highlight ---------- */
+let area=null;
+async function drawArea(p){
+  if(area){map.removeLayer(area);area=null}
+  let g=p.geo;
+  if(!g&&p.osm){
+    try{
+      const r=await nom('/lookup',{osm_ids:p.osm});
+      if(current!==p)return;
+      g=r[0]&&r[0].geojson;
+      if(r[0]&&!p.wd){p.wd=(r[0].extratags||{}).wikidata||'';if(p.wd){loadSymbols(p);loadInfo(p)}}
+    }catch{}
+  }
+  if(!g||!/Polygon/.test(g.type)||current!==p)return;
+  area=L.geoJSON(g,{style:{color:'#4fd1c5',weight:2.5,fillColor:'#4fd1c5',fillOpacity:.2},interactive:false}).addTo(map);
+}
+
+/* ---------- flag, coat of arms, anthem (Wikidata + Wikimedia Commons) ---------- */
+const SYM={hy:{flag:'Դրոշ',arms:'Զինանշան',anthem:'Օրհներգ',open:'Բացել Commons-ում'},
+  ru:{flag:'Флаг',arms:'Герб',anthem:'Гимн',open:'Открыть в Commons'},
+  en:{flag:'Flag',arms:'Coat of arms',anthem:'Anthem',open:'Open on Commons'}};
+async function wdApi(ids,props){
+  const u=new URL('https://www.wikidata.org/w/api.php');
+  Object.entries({action:'wbgetentities',ids,props,languages:lang+'|en',format:'json',origin:'*'}).forEach(([k,v])=>u.searchParams.set(k,v));
+  const r=await fetch(u);if(!r.ok)throw new Error(r.status);
+  return (await r.json()).entities||{};
+}
+function claim(e,pid){
+  const c=(e&&e.claims&&e.claims[pid])||[];
+  const x=c.find(z=>z.rank==='preferred')||c[0];
+  return x&&x.mainsnak&&x.mainsnak.datavalue?x.mainsnak.datavalue.value:null;
+}
+const commons=(f,w)=>'https://commons.wikimedia.org/wiki/Special:FilePath/'+encodeURIComponent(f)+(w?'?width='+w:'');
+function fig(file,label){
+  const f=document.createElement('figure');
+  const i=document.createElement('img');i.loading='lazy';i.alt=label;i.src=commons(file,360);
+  i.onerror=()=>f.remove();
+  const c=document.createElement('figcaption');c.textContent=label;
+  f.append(i,c);return f;
+}
+async function loadSymbols(p){
+  const box=$('#media');
+  if(!box||!p.wd)return;
+  try{
+    const e=(await wdApi(p.wd,'claims'))[p.wd];
+    if(current!==p||!e)return;
+    const S=SYM[lang],flag=claim(e,'P41'),arms=claim(e,'P94'),an=claim(e,'P85');
+    box.innerHTML='';
+    if(typeof flag==='string')box.append(fig(flag,S.flag));
+    if(typeof arms==='string')box.append(fig(arms,S.arms));
+    if(an&&an.id){
+      const ae=(await wdApi(an.id,'claims|labels'))[an.id];
+      const audio=claim(ae,'P51');
+      if(current!==p)return;
+      if(typeof audio==='string'){
+        const d=document.createElement('div');d.className='anthem';
+        const lab=ae.labels&&(ae.labels[lang]||Object.values(ae.labels)[0]);
+        const cap=document.createElement('figcaption');cap.textContent=S.anthem+(lab?': '+lab.value:'');
+        const a=document.createElement('audio');a.controls=true;a.preload='none';a.src=commons(audio);
+        const lk=document.createElement('a');lk.href='https://commons.wikimedia.org/wiki/File:'+encodeURIComponent(audio.replace(/ /g,'_'));
+        lk.target='_blank';lk.rel='noopener';lk.textContent=S.open;lk.hidden=true;
+        a.onerror=()=>{lk.hidden=false};
+        d.append(cap,a,lk);box.append(d);
+      }
+    }
+  }catch{}
+}
+
+function isFav(p){return favs.some(f=>f.id===p.id)}
+function showCard(p){
+  current=p;const c=$('#card');c.innerHTML='';
+  const h=document.createElement('h2');h.textContent=p.name;
+  const k=document.createElement('div');k.className='kind';k.textContent=p.kind||'';
+  const acts=document.createElement('div');acts.className='acts';
+  const star=btn(isFav(p)?'★':'☆','fav',()=>{
+    favs=isFav(p)?favs.filter(f=>f.id!==p.id):[p,...favs].slice(0,30);store.set('favs',favs);star.textContent=isFav(p)?'★':'☆';
+  });
+  const cp=btn('⧉',t('copy'),async()=>{
+    const txt=`${p.name}\n${p.full||''}\n${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
+    try{await navigator.clipboard.writeText(txt);toast(t('copied'))}catch{toast(txt)}
+  });
+  const x=btn('✕','close',()=>showPane('map'));
+  acts.append(star,cp,x);
+  const dl=document.createElement('dl');
+  const rows=[[t('country'),p.country],[t('addr'),p.full],[t('coord'),`${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`],[t('osm'),p.osm]];
+  rows.forEach(([a,b])=>{if(!b)return;const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=a;dd.textContent=b;dl.append(dt,dd)});
+  const info=document.createElement('div');info.id='info';info.append(el('div','spin big'));
+  const det=document.createElement('details');det.className='sec';det.append(el('summary',null,t('s_basic')),dl);
+  const src=document.createElement('div');src.className='src';
+  src.append(document.createTextNode(t('source')+': '));
+  const a=document.createElement('a');a.textContent='OpenStreetMap / Nominatim';a.href='https://www.openstreetmap.org/copyright';a.target='_blank';a.rel='noopener';
+  src.append(a,document.createTextNode(' · Wikidata / Wikimedia Commons'));
+  const media=document.createElement('div');media.id='media';
+  c.append(acts,h,k,media,info,det,src);c.classList.add('open');showPane('info');loadSymbols(p);loadInfo(p);
+}
+function btn(txt,label,fn){const b=document.createElement('button');b.className='ic';b.textContent=txt;b.setAttribute('aria-label',label);b.onclick=fn;return b}
+let tt;function toast(m){const e=$('#toast');e.textContent=m;e.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('show'),2200)}
+
+/* click on map → reverse geocode */
+map.on('click',async e=>{
+  sugg.classList.remove('open');
+  const{lat,lng}=e.latlng;
+  placeMarker({lat,lon:lng});
+  const c=$('#card');c.innerHTML='';c.textContent=t('loading');c.classList.add('open');showPane('info');
+  try{
+    const z=Math.max(3,Math.min(18,Math.round(map.getZoom())+2));
+    const r=await nom('/reverse',{lat,lon:lng,zoom:z});
+    if(r.error){c.textContent=t('none');return}
+    const p=toPlace(r);p.lat=lat;p.lon=lng;showCard(p);drawArea(p);
+  }catch{c.textContent=t('err')}
+});
+
+/* ---------- controls ---------- */
+$('#zin').onclick=()=>map.zoomIn();
+$('#zout').onclick=()=>map.zoomOut();
+$('#layerbtn').onclick=()=>$('#layers').classList.toggle('open');
+$('#locate').onclick=()=>{
+  if(!navigator.geolocation)return toast(t('loc'));
+  navigator.geolocation.getCurrentPosition(
+    pos=>{const ll=[pos.coords.latitude,pos.coords.longitude];map.flyTo(ll,12);placeMarker({lat:ll[0],lon:ll[1]})},
+    ()=>toast(t('loc')),{timeout:10000});
+};
+$('#full').onclick=()=>{
+  const d=document.documentElement;
+  if(document.fullscreenElement)return document.exitFullscreen();
+  if(d.requestFullscreen)d.requestFullscreen().catch(()=>toast(t('fsoff')));else toast(t('fsoff'));
+};
+document.addEventListener('fullscreenchange',()=>$('#full').classList.toggle('on',!!document.fullscreenElement));
+$('#lang').onclick=()=>{lang=LANGS[(LANGS.indexOf(lang)+1)%3];store.set('lang',lang);applyLang();if(current)showCard(current)};
+$('#theme').onclick=()=>{theme=theme==='dark'?'light':'dark';store.set('theme',theme);applyTheme()};
+
+function applyTheme(){document.documentElement.dataset.theme=theme;$('#theme').textContent=theme==='dark'?'🌙':'☀️'}
+function applyLang(){
+  document.documentElement.lang=lang;q.placeholder=t('ph');$('#lang').textContent=lang.toUpperCase();
+  const items=[['map','🗺️',0],['info','📖',0],['ai','✨',0],['cmp','⚖️',0],['photos','🖼️',0],['time','🕒',4],['weather','⛅',5],['learn','🎓',6]];
+  const nav=$('#nav');nav.innerHTML='';
+  items.forEach(([k,e,ph])=>{
+    const b=document.createElement('button');b.dataset.k=k;b.className=k===panel?'on':'';
+    if(ph)b.disabled=true;else b.onclick=()=>setPanel(k);
+    b.innerHTML=`<span class="e">${e}</span><span>${t(k)}</span>`+(ph?`<i>${t('soon')} ${ph}</i>`:'');
+    nav.append(b);
+  });
+  refreshTexts();
+  renderLayers();
+}
+
+/* ====================== PHASE 2 ====================== */
+let API_BASE=((document.querySelector('meta[name=geoai-api]')||{}).content||localStorage.getItem('geoai-api-url')||'').replace(/\/$/,'');
+const ai={ok:false};
+let panel='map',curInfo=null;
+const el=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e};
+const lab=e=>{const L=(e&&e.labels)||{};return(L[lang]||L.en||Object.values(L)[0]||{}).value||''};
+const cut=(s,n)=>{if(s.length<=n)return s;const x=s.slice(0,n),i=Math.max(x.lastIndexOf('. '),x.lastIndexOf('։'),x.lastIndexOf('\n'));return i>n*.5?x.slice(0,i+1):x+'…'};
+const nf=()=>new Intl.NumberFormat(lang==='hy'?'hy-AM':lang,{maximumFractionDigits:2});
+const today=()=>new Date().toISOString().slice(0,10);
+
+const U={
+hy:{ai:'AI',cmp:'Համեմատել',official:'Պաշտոնական անվանում',capital:'Մայրաքաղաք',population:'Բնակչություն',area:'Տարածք',continent:'Մայրցամաք',neighbors:'Հարևաններ',langs:'Լեզուներ',currency:'Արժույթ',gdp:'ՀՆԱ (անվանական)',climate:'Կլիմա',highest:'Ամենաբարձր կետ',admin:'Տարածաշրջան',elevation:'Բարձրություն',length:'Երկարություն',prominence:'Հարաբերական բարձրություն',depth:'Խորություն',volume:'Ծավալ',basin:'Ավազանի մակերես',origin:'Սկիզբ',mouth:'Գետաբերան',range:'Լեռնաշղթա',tz:'Ժամային գոտի',water:'Ջրային օբյեկտ',asof:'տվյալը՝',
+s_climate:'Կլիմա',s_relief:'Ռելիեֆ և լանդշաֆտ',s_economy:'Տնտեսություն',s_nature:'Բուսական և կենդանական աշխարհ',s_resources:'Բնական ռեսուրսներ',s_tourism:'Տուրիզմ և տեսարժան վայրեր',s_history:'Պատմություն',s_nearby:'Մոտակա օբյեկտներ',s_cities:'Խոշոր քաղաքներ',s_basic:'Քարտեզի տվյալներ (OSM)',
+readmore:'Կարդալ ավելին',aisum:'AI ամփոփում',aisum_note:'Ստեղծվել է AI-ի կողմից՝ վերը բերված աղբյուրների հիման վրա։',ai_off:'AI-ն միացված չէ։ Գործարկեք backend-ը /server թղթապանակից (տես README)։ Որոնումը, քարտեզը և տվյալները աշխատում են առանց դրա։',ai_think:'Մտածում է…',ask:'Հարցրեք աշխարհագրության մասին…',send:'Ուղարկել',chat_title:'Աշխարհագրական օգնական',chat_hello:'Տվեք հարց։ Ես տարբերակում եմ ստուգված փաստերը բացատրություններից։',
+cmp_title:'Համեմատություն',cmp_a:'Առաջին վայր',cmp_b:'Երկրորդ վայր',cmp_cur:'Վերցնել ընթացիկը',cmp_hint:'Ընտրեք երկու վայր համեմատելու համար։',nodata:'Այս վայրի համար կառուցվածքային տվյալներ չգտնվեցին։',loadinfo:'Տեղեկությունը բեռնվում է…',tips:'Փորձեք այլ ուղղագրություն, այլ լեզվով անուն կամ ավելի մեծ վայր։',retrieved:'Տվյալները ստացվել են',wikilang:'Տեքստի լեզուն՝',sources:'Աղբյուրներ',aifail:'AI-ն չպատասխանեց',
+n_peak:'գագաթ',n_volcano:'հրաբուխ',n_water:'լիճ/ջրամբար',n_river:'գետ',n_city:'քաղաք',n_town:'ավան',n_bay:'ծոց',
+q1:'Բացատրիր այս վայրը պարզ լեզվով',q2:'Ինչու՞ է այս վայրն աշխարհագրորեն այսպիսին',q3:'Որն է Եվրոպայի ամենաբարձր լեռը'},
+ru:{ai:'AI',cmp:'Сравнить',official:'Официальное название',capital:'Столица',population:'Население',area:'Площадь',continent:'Континент',neighbors:'Соседи',langs:'Языки',currency:'Валюта',gdp:'ВВП (номинальный)',climate:'Климат',highest:'Высшая точка',admin:'Регион',elevation:'Высота',length:'Длина',prominence:'Относительная высота',depth:'Глубина',volume:'Объём',basin:'Площадь бассейна',origin:'Исток',mouth:'Устье',range:'Горная система',tz:'Часовой пояс',water:'Водный объект',asof:'на',
+s_climate:'Климат',s_relief:'Рельеф и ландшафт',s_economy:'Экономика',s_nature:'Флора и фауна',s_resources:'Природные ресурсы',s_tourism:'Туризм и достопримечательности',s_history:'История',s_nearby:'Рядом',s_cities:'Крупные города',s_basic:'Данные карты (OSM)',
+readmore:'Читать далее',aisum:'AI-сводка',aisum_note:'Создано ИИ на основе источников ниже.',ai_off:'AI не подключён. Запустите backend из папки /server (см. README). Поиск, карта и данные работают и без него.',ai_think:'Думаю…',ask:'Спросите о географии…',send:'Отправить',chat_title:'Географический помощник',chat_hello:'Задайте вопрос. Я отделяю проверенные факты от объяснений.',
+cmp_title:'Сравнение',cmp_a:'Первое место',cmp_b:'Второе место',cmp_cur:'Взять текущее',cmp_hint:'Выберите два места для сравнения.',nodata:'Для этого места структурированных данных не найдено.',loadinfo:'Загрузка информации…',tips:'Попробуйте другое написание, название на другом языке или более крупный объект.',retrieved:'Данные получены',wikilang:'Язык текста:',sources:'Источники',aifail:'AI не ответил',
+n_peak:'вершина',n_volcano:'вулкан',n_water:'озеро/водоём',n_river:'река',n_city:'город',n_town:'городок',n_bay:'залив',
+q1:'Объясни это место простыми словами',q2:'Почему это место такое географически?',q3:'Какая самая высокая гора Европы?'},
+en:{ai:'AI',cmp:'Compare',official:'Official name',capital:'Capital',population:'Population',area:'Area',continent:'Continent',neighbors:'Neighbors',langs:'Languages',currency:'Currency',gdp:'GDP (nominal)',climate:'Climate',highest:'Highest point',admin:'Region',elevation:'Elevation',length:'Length',prominence:'Prominence',depth:'Depth',volume:'Volume',basin:'Basin area',origin:'Origin',mouth:'Mouth',range:'Mountain range',tz:'Time zone',water:'Body of water',asof:'as of',
+s_climate:'Climate',s_relief:'Relief and landscape',s_economy:'Economy',s_nature:'Flora and fauna',s_resources:'Natural resources',s_tourism:'Tourism and sights',s_history:'History',s_nearby:'Nearby objects',s_cities:'Major cities',s_basic:'Map data (OSM)',
+readmore:'Read more',aisum:'AI summary',aisum_note:'Generated by AI from the sources listed below.',ai_off:'AI is not connected. Start the backend from the /server folder (see README). Search, map and data work without it.',ai_think:'Thinking…',ask:'Ask about geography…',send:'Send',chat_title:'Geography assistant',chat_hello:'Ask a question. I separate verified facts from explanations.',
+cmp_title:'Compare',cmp_a:'First place',cmp_b:'Second place',cmp_cur:'Use current',cmp_hint:'Pick two places to compare.',nodata:'No structured data was found for this place.',loadinfo:'Loading information…',tips:'Try another spelling, the name in another language, or a larger place.',retrieved:'Data retrieved',wikilang:'Text language:',sources:'Sources',aifail:'AI did not respond',
+n_peak:'peak',n_volcano:'volcano',n_water:'lake/reservoir',n_river:'river',n_city:'city',n_town:'town',n_bay:'bay',
+q1:'Explain this place in simple words',q2:'Why is this place the way it is geographically?',q3:'What is the highest mountain in Europe?'}
+};
+
+/* ---- panes ---- */
+function showPane(n){
+  panel=n;
+  $('#card').classList.toggle('open',n==='info');
+  $('#chat').classList.toggle('open',n==='ai');
+  $('#cmp').classList.toggle('open',n==='cmp');
+  $('#photos').classList.toggle('open',n==='photos');
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===n));
+}
+function setPanel(n){
+  if(n==='info'&&!current){toast(t('empty'));return}
+  showPane(n);
+  if(n==='ai')renderChat();
+  if(n==='cmp')renderCmp();
+  if(n==='photos'&&current)loadPhotos(false);
+}
+function refreshTexts(){if(!$('#chat').firstChild)return;renderChat();renderCmp()}
+
+/* ---- Wikidata facts ---- */
+const F={P1448:['official','mono'],P36:['capital','items'],P37:['langs','items'],P38:['currency','items'],P47:['neighbors','items'],
+  P30:['continent','items'],P17:['country','items'],P131:['admin','items'],P1082:['population','qty'],P2046:['area','qty'],
+  P2044:['elevation','qty'],P2043:['length','qty'],P2660:['prominence','qty'],P4511:['depth','qty'],P2234:['volume','qty'],
+  P2053:['basin','qty'],P885:['origin','items'],P403:['mouth','items'],P4552:['range','items'],P2131:['gdp','qty'],
+  P610:['highest','items'],P421:['tz','items'],P31:['type','items'],P206:['water','items']};
+const SHOW={
+  country:['official','capital','population','area','continent','neighbors','langs','currency','gdp','highest'],
+  place:['type','country','admin','population','area','elevation','tz'],
+  mountain:['type','elevation','prominence','range','country','admin'],
+  river:['type','length','basin','origin','mouth','country'],
+  lake:['type','area','depth','volume','elevation','country','water'],
+  island:['type','area','elevation','country','water'],
+  other:['type','country','admin','area','elevation','population']};
+const UNITS={Q712226:'km²',Q828224:'km',Q11573:'m',Q25343:'m²',Q199:'',Q4917:'US$',Q253276:'mi'};
+const SEC={
+  climate:/climat|климат|կլիմա/i,
+  relief:/relief|terrain|topograph|geograph|landscape|geolog|рельеф|географ|ландшафт|геолог|ռելիեֆ|աշխարհագր|բնապատկեր|երկրաբան/i,
+  economy:/econom|эконом|տնտես/i,
+  nature:/flora|fauna|wildlife|biodivers|vegetation|ecolog|environment|флора|фауна|растител|животн|природа|экологи|բուսակ|կենդանակ|բնություն|էկոլոգ/i,
+  resources:/resource|mineral|mining|ресурс|полезн|ископаем|ռեսուրս|օգտակար|հանածո|հանքա/i,
+  tourism:/touris|attraction|sights|landmark|туризм|достопримеч|տուրիզ|տեսարժան/i,
+  history:/^history|истори|պատմություն/i};
+function groupOf(p){
+  const at=p.at||'',ty=p.typ||'',ct=p.cat||'';
+  if(at==='country')return'country';
+  if(['peak','volcano','mountain_range','ridge','saddle'].includes(ty))return'mountain';
+  if(ct==='waterway')return'river';
+  if(['water','bay','lake','sea','ocean','strait','reservoir'].includes(ty))return'lake';
+  if(at==='island'||['island','islet','archipelago'].includes(ty))return'island';
+  if(['city','town','village','hamlet','municipality','state','region','province','county','district'].includes(at))return'place';
+  return'other';
+}
+function stmts(e,pid,max){
+  const c=((e.claims||{})[pid]||[]).filter(s=>s.rank!=='deprecated'&&s.mainsnak&&s.mainsnak.datavalue);
+  const pf=c.filter(s=>s.rank==='preferred'),base=pf.length?pf:c;
+  const yr=s=>{const q=(s.qualifiers||{}).P585;return(q&&q[0].datavalue&&q[0].datavalue.value.time)||''};
+  return[...base].sort((a,b)=>yr(b).localeCompare(yr(a))).slice(0,max);
+}
+const fcache=new Map();
+async function getFacts(p){
+  const id=p.wd;if(!id)return null;
+  const key=id+lang;
+  if(!fcache.has(key))fcache.set(key,getFactsRaw(p).catch(e=>{fcache.delete(key);throw e}));
+  return fcache.get(key);
+}
+async function getFactsRaw(p){
+  const id=p.wd,key=id+lang;
+  const ent=(await wdApi(id,'claims|labels|descriptions|sitelinks'))[id];
+  if(!ent||!ent.claims){fcache.set(key,null);return null}
+  const f={wd:id,label:lab(ent),desc:((ent.descriptions||{})[lang]||(ent.descriptions||{}).en||{}).value||'',sites:ent.sitelinks||{},facts:{},flag:claim(ent,'P41'),arms:claim(ent,'P94')};
+  const need=new Set(),raw={};
+  for(const[pid,[k,ty]]of Object.entries(F)){
+    const ss=stmts(ent,pid,ty==='items'?20:ty==='mono'?10:1);
+    if(!ss.length)continue;raw[k]={ty,ss};
+    ss.forEach(s=>{const v=s.mainsnak.datavalue.value;if(v&&v.id)need.add(v.id);if(v&&v.unit){const u=v.unit.split('/').pop();if(!(u in UNITS))need.add(u)}});
+  }
+  const labels={},ids=[...need];
+  for(let i=0;i<ids.length;i+=50){try{const es=await wdApi(ids.slice(i,i+50).join('|'),'labels');for(const[k2,e2]of Object.entries(es))labels[k2]=lab(e2)}catch{}}
+  for(const[k,{ty,ss}]of Object.entries(raw)){
+    if(ty==='items'){const names=ss.map(s=>labels[s.mainsnak.datavalue.value.id]).filter(Boolean);if(names.length)f.facts[k]={text:names.join(', ')}}
+    else if(ty==='mono'){const m=ss.map(s=>s.mainsnak.datavalue.value),v=m.find(x=>x.language===lang)||m.find(x=>x.language==='en')||m[0];if(v&&v.text)f.facts[k]={text:v.text}}
+    else{
+      const s=ss[0],v=s.mainsnak.datavalue.value,num=parseFloat(v.amount),u=(v.unit||'').split('/').pop();
+      const un=u in UNITS?UNITS[u]:(labels[u]||''),q=(s.qualifiers||{}).P585,tm=q&&q[0].datavalue&&q[0].datavalue.value.time;
+      if(!isNaN(num))f.facts[k]={num,unit:un,text:nf().format(num)+(un?' '+un:''),date:tm?tm.slice(1,5):''};
+    }
+  }
+  fcache.set(key,f);return f;
+}
+async function wpToWd(wp){
+  const i=wp.indexOf(':'),l=wp.slice(0,i);
+  if(!/^[a-z-]{2,10}$/.test(l))return'';
+  const u=new URL(`https://${l}.wikipedia.org/w/api.php`);
+  Object.entries({action:'query',prop:'pageprops',ppprop:'wikibase_item',titles:wp.slice(i+1),redirects:1,format:'json',origin:'*'}).forEach(([k,v])=>u.searchParams.set(k,v));
+  const j=await(await fetch(u)).json(),pg=Object.values((j.query||{}).pages||{})[0];
+  return(pg&&pg.pageprops&&pg.pageprops.wikibase_item)||'';
+}
+async function wdSearch(v,signal){
+  const u=new URL('https://www.wikidata.org/w/api.php');
+  Object.entries({action:'wbsearchentities',search:v,language:lang,uselang:lang,limit:5,type:'item',format:'json',origin:'*'}).forEach(([k,x])=>u.searchParams.set(k,x));
+  const r=await fetch(u,{signal});if(!r.ok)throw new Error(r.status);
+  const ids=((await r.json()).search||[]).map(s=>s.id);
+  if(!ids.length)return[];
+  const ents=await wdApi(ids.join('|'),'claims|labels|descriptions'),out=[];
+  for(const id of ids){
+    const e=ents[id],c=e&&claim(e,'P625');if(!c)continue;
+    out.push({name:lab(e),sub:((e.descriptions||{})[lang]||(e.descriptions||{}).en||{}).value||'',lat:c.latitude,lon:c.longitude,bbox:null,kind:'',full:'',country:'',osm:'',wd:id,wp:'',at:'',typ:'',cat:'',id:'wd'+id});
+  }
+  return out;
+}
+function noResults(v){
+  const d=el('div','empty');d.append(el('b',null,t('none')+': «'+v+'»'),el('small',null,t('tips')));openSugg([d]);
+}
+
+/* ---- Wikipedia text ---- */
+async function loadWiki(info,p){
+  const sites=(info.facts&&info.facts.sites)||{};let site=null;
+  for(const l of[...new Set([lang,'en','ru'])]){if(sites[l+'wiki']){site={l,title:sites[l+'wiki'].title};break}}
+  if(!site&&p.wp&&p.wp.includes(':')){const i=p.wp.indexOf(':'),l=p.wp.slice(0,i);if(/^[a-z-]{2,10}$/.test(l))site={l,title:p.wp.slice(i+1)}}
+  if(!site)return;
+  const u=new URL(`https://${site.l}.wikipedia.org/w/api.php`);
+  Object.entries({action:'query',prop:'extracts',explaintext:1,exsectionformat:'wiki',redirects:1,titles:site.title,format:'json',origin:'*'}).forEach(([k,v])=>u.searchParams.set(k,v));
+  const r=await fetch(u);if(!r.ok)return;
+  const pg=Object.values(((await r.json()).query||{}).pages||{})[0],text=(pg&&pg.extract)||'';
+  if(!text)return;
+  info.wiki={l:site.l,url:`https://${site.l}.wikipedia.org/wiki/${encodeURIComponent((pg.title||site.title).replace(/ /g,'_'))}`};
+  const re=/^(={2,5})\s*(.+?)\s*\1\s*$/gm,hs=[];let m;
+  while((m=re.exec(text)))hs.push({lv:m[1].length,h:m[2],s:m.index,e:m.index+m[0].length});
+  info.intro=cut(text.slice(0,hs.length?hs[0].s:text.length).trim(),700);
+  const body=i=>{let end=text.length;for(let j=i+1;j<hs.length;j++){if(hs[j].lv<=hs[i].lv){end=hs[j].s;break}}return text.slice(hs[i].e,end).replace(/^={2,5}.*={2,5}\s*$/gm,'').replace(/\n{3,}/g,'\n\n').trim()};
+  const used=new Set();
+  for(const[k,rx]of Object.entries(SEC)){
+    const i=hs.findIndex((h,ix)=>!used.has(ix)&&rx.test(h.h)&&body(ix).length>120);
+    if(i>=0){used.add(i);info.secs[k]=cut(body(i),1400)}
+  }
+}
+
+/* ---- Overpass: nearby objects / major cities ---- */
+async function overpass(q){
+  const c=new AbortController();setTimeout(()=>c.abort(),25000);
+  const r=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(q),signal:c.signal});
+  if(!r.ok)throw new Error(r.status);return(await r.json()).elements||[];
+}
+async function loadNearby(info,p){
+  const g=groupOf(p);
+  if(g==='country'){
+    if(!/^R\d+$/.test(p.osm||''))return;
+    const els=await overpass(`[out:json][timeout:25];rel(${p.osm.slice(1)});map_to_area->.a;node(area.a)[place=city][name];out body 150;`);
+    info.cities=els.map(e=>({name:e.tags['name:'+lang]||e.tags.name,pop:parseInt(e.tags.population)||0,lat:e.lat,lon:e.lon})).sort((a,b)=>b.pop-a.pop).slice(0,8);
+    return;
+  }
+  const R={mountain:30000,river:15000,lake:20000,island:20000}[g]||15000,a=`(around:${R},${p.lat},${p.lon})`;
+  const els=await overpass(`[out:json][timeout:20];(node${a}[name][place~"^(city|town)$"];node${a}[name][natural~"^(peak|volcano)$"];)->.n;(way${a}[name][natural=water];way${a}[name][waterway=river];)->.w;.n out body 60;.w out tags center 40;`);
+  const seen=new Set(),out=[];
+  for(const e of els){
+    const tg=e.tags||{},name=tg['name:'+lang]||tg.name,ty=tg.waterway||(tg.natural==='water'?'water':tg.natural)||tg.place;
+    const pos=e.lat!=null?[e.lat,e.lon]:(e.center?[e.center.lat,e.center.lon]:null);
+    if(!name||!pos||name===p.name||seen.has(name+ty))continue;seen.add(name+ty);
+    out.push({name,ty,lat:pos[0],lon:pos[1],km:map.distance([p.lat,p.lon],pos)/1000});
+  }
+  info.nearby=out.sort((a,b)=>a.km-b.km).slice(0,10);
+}
+
+/* ---- assemble + render ---- */
+async function getInfo(p){
+  const info={p,facts:null,intro:'',secs:{},nearby:[],cities:[],wiki:null};
+  if(!p.wd&&p.wp){try{p.wd=await wpToWd(p.wp)}catch{}}
+  try{info.facts=await getFacts(p)}catch{}
+  await Promise.all([loadWiki(info,p).catch(()=>{}),loadNearby(info,p).catch(()=>{})]);
+  return info;
+}
+function loadInfo(p){
+  getInfo(p).then(i=>{if(current===p){curInfo=i;renderInfo(i)}}).catch(()=>{const b=$('#info');if(b&&current===p)b.textContent=t('err')});
+}
+function osmUrl(p){const m=/^([NWR])(\d+)$/.exec(p.osm||'');return m?`https://www.openstreetmap.org/${{N:'node',W:'way',R:'relation'}[m[1]]}/${m[2]}`:''}
+function link(href,txt){const a=el('a',null,txt);a.href=href;a.target='_blank';a.rel='noopener';return a}
+function ctxOf(info){
+  const p=info.p,o={name:p.name,type:p.kind,coordinates:[+p.lat.toFixed(4),+p.lon.toFixed(4)],country:p.country,facts:{}};
+  if(info.facts)for(const[k,v]of Object.entries(info.facts.facts))o.facts[k]=v.text+(v.date?` (as of ${v.date})`:'');
+  o.wikipedia_intro=info.intro;o.wikipedia_sections=info.secs;
+  o.nearby=(info.nearby||[]).map(n=>n.name);o.major_cities=(info.cities||[]).map(c=>c.name);
+  return JSON.stringify(o).slice(0,12000);
+}
+function renderInfo(info){
+  const p=info.p,box=$('#info');if(!box||current!==p)return;
+  box.innerHTML='';const f=info.facts;
+  const text=info.intro||(f&&f.desc)||'';
+  if(text){
+    const w=el('div','intro');w.append(el('p',null,text));
+    if(info.wiki){
+      const s=el('div','src');s.append(link(info.wiki.url,'Wikipedia'));
+      if(info.wiki.l!==lang)s.append(document.createTextNode(` · ${t('wikilang')} ${info.wiki.l.toUpperCase()}`));
+      w.append(s);
+    }
+    if(ai.ok){
+      const b=el('button','pill',t('aisum')),out=el('div','aiout');b.type='button';
+      b.onclick=async()=>{
+        b.disabled=true;out.textContent=t('ai_think');
+        try{out.textContent=await aiCall({mode:'summary',lang,context:ctxOf(info)});out.append(el('div','src',t('aisum_note')))}
+        catch(e){out.textContent=t('aifail')+': '+e.message}
+        b.disabled=false;
+      };
+      w.append(b,out);
+    }else w.append(el('div','src',t('ai_off')));
+    box.append(w);
+  }
+  const grid=el('div','stats');
+  for(const k of SHOW[groupOf(p)]){
+    const v=f&&f.facts[k];if(!v)continue;
+    const c=el('div','stat'+(v.text.length>40?' wide':''));c.append(el('small',null,t(k)),el('b',null,v.text));
+    if(v.date)c.append(el('small',null,`${t('asof')} ${v.date}`));grid.append(c);
+  }
+  if(grid.children.length)box.append(grid);
+  const sec=(title,fn,open)=>{const d=el('details','sec');if(open)d.open=true;d.append(el('summary',null,title));const b=el('div','sbody');fn(b);d.append(b);box.append(d)};
+  for(const k of['relief','climate','economy','nature','resources','tourism','history']){
+    if(!info.secs[k])continue;
+    sec(t('s_'+k),b=>{b.append(el('p',null,info.secs[k]));if(info.wiki)b.append(link(info.wiki.url,t('readmore')))});
+  }
+  const goList=(b,arr,subFn)=>arr.forEach(n=>{const x=el('button','li');x.type='button';x.append(el('span',null,n.name),el('small',null,subFn(n)));x.onclick=()=>map.flyTo([n.lat,n.lon],n.ty?12:9,{duration:1});b.append(x)});
+  if(info.cities.length)sec(t('s_cities'),b=>goList(b,info.cities,n=>n.pop?nf().format(n.pop):''));
+  if(info.nearby.length)sec(t('s_nearby'),b=>goList(b,info.nearby,n=>`${t('n_'+n.ty)} · ${n.km<10?n.km.toFixed(1):Math.round(n.km)} km`));
+  if(!text&&!grid.children.length&&!box.querySelector('.sec'))box.append(el('div','empty',t('nodata')));
+  sec(t('sources'),b=>{
+    const add=(h,tx)=>{const d=el('div');d.append(link(h,tx));b.append(d)};
+    if(f)add('https://www.wikidata.org/wiki/'+f.wd,'Wikidata');
+    if(info.wiki)add(info.wiki.url,'Wikipedia ('+info.wiki.l+')');
+    if(osmUrl(p))add(osmUrl(p),'OpenStreetMap / Nominatim');
+    if(info.nearby.length||info.cities.length)add('https://overpass-api.de','Overpass API (OSM)');
+    b.append(el('small',null,`${t('retrieved')}: ${today()}`));
+  },true);
+}
+
+/* ---- AI backend (proxy) ---- */
+async function checkAI(){
+  ai.ok=false;
+  if(!API_BASE){if(panel==='ai')renderChat();return false}
+  const c=new AbortController();setTimeout(()=>c.abort(),7000);
+  try{const r=await fetch(API_BASE+'/api/health',{signal:c.signal});const j=r.ok?await r.json():null;ai.ok=!!(j&&j.ok);if(panel==='ai')renderChat();return ai.ok}
+  catch{ai.ok=false;if(panel==='ai')renderChat();return false}
+}
+checkAI();
+async function aiCall(body){
+  const c=new AbortController();setTimeout(()=>c.abort(),60000);
+  const r=await fetch(API_BASE+'/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:c.signal});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j.text||'';
+}
+
+/* ---- chat ---- */
+const chat={msgs:[],hello:null};
+function setBot(d,text){
+  d.textContent='';
+  text.split('\n').forEach(line=>{
+    if(!line.trim())return;
+    const x=el('div',line.startsWith('✔')?'ok':line.startsWith('💡')?'ex':line.startsWith('⚠')?'un':null,line);d.append(x);
+  });
+}
+function addMsg(role,text,sys){
+  const d=el('div','m '+role+(sys?' sys':''),text);$('#msgs').append(d);d.scrollIntoView({block:'end'});return d;
+}
+async function sendChat(text){
+  if(!ai.ok)return;
+  renderChat();addMsg('user',text);chat.msgs.push({role:'user',content:text});
+  const d=addMsg('bot',t('ai_think'));
+  try{
+    const ctx=curInfo&&curInfo.p===current?ctxOf(curInfo):'';
+    const ans=await aiCall({mode:'chat',lang,context:ctx,messages:chat.msgs.slice(-8)});
+    setBot(d,ans);chat.msgs.push({role:'assistant',content:ans});d.scrollIntoView({block:'end'});
+  }catch(e){d.textContent=t('aifail')+': '+e.message;chat.msgs.pop()}
+}
+function initChat(){
+  const c=$('#chat');
+  c.innerHTML='<div class="phd"><h2></h2><button class="ic" type="button" aria-label="close">✕</button></div><div class="msgs" id="msgs" aria-live="polite"></div><div class="chips" id="chips"></div><div class="ai-connect" id="ai-connect" style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="pill" id="ai-connect-btn">Միացնել AI սերվերը</button><button type="button" class="pill" id="ai-disconnect-btn" style="opacity:.7">Փոխել հասցեն</button></div><form id="chatf"><input id="chati" autocomplete="off"><button class="pill" type="submit"></button></form>';
+  c.querySelector('.ic').onclick=()=>showPane('map');
+  $('#ai-connect-btn').onclick=async()=>{const v=prompt('Մուտքագրիր տեղակայված backend-ի URL-ը (օր. https://your-app.onrender.com)');if(!v)return;API_BASE=v.trim().replace(/\/$/,'');localStorage.setItem('geoai-api-url',API_BASE);await checkAI()};
+  $('#ai-disconnect-btn').onclick=async()=>{const v=prompt('Նոր backend URL (դատարկ՝ ջնջելու համար):',API_BASE);if(v===null)return;API_BASE=v.trim().replace(/\/$/,'');if(API_BASE)localStorage.setItem('geoai-api-url',API_BASE);else localStorage.removeItem('geoai-api-url');await checkAI()};
+  $('#chatf').onsubmit=e=>{e.preventDefault();const v=$('#chati').value.trim();if(!v||!ai.ok)return;$('#chati').value='';sendChat(v)};
+}
+function renderChat(){
+  const c=$('#chat');if(!c.firstChild)return;
+  c.querySelector('h2').textContent=t('chat_title');
+  const i=$('#chati'),b=c.querySelector('.pill');
+  i.placeholder=t('ask');i.disabled=!ai.ok;b.textContent=t('send');b.disabled=!ai.ok;
+  if(!chat.hello||!chat.hello.isConnected)chat.hello=addMsg('bot','',true);
+  chat.hello.textContent=ai.ok?t('chat_hello'):'AI սերվերը դեռ միացված չէ։ Սեղմիր «Միացնել AI սերվերը» և տեղադրիր backend-ի հրապարակային հասցեն։ Սերվերը պետք է տեղակայված լինի ինտերնետում։';
+  $('#ai-connect').style.display=ai.ok?'none':'flex';
+  const ch=$('#chips');ch.innerHTML='';
+  if(ai.ok)['q1','q2','q3'].forEach(k=>{const x=el('button',null,t(k));x.type='button';x.onclick=()=>sendChat(t(k));ch.append(x)});
+}
+
+/* ---- compare ---- */
+const cmpS={a:null,b:null};
+const CMP_ROWS=['type','country','capital','continent','population','area','elevation','climate','gdp','langs','currency','highest','coord'];
+function initCmp(){
+  const c=$('#cmp');
+  c.innerHTML='<div class="phd"><h2></h2><button class="ic" type="button" aria-label="close">✕</button></div><div class="slots"></div><div id="cmpout"></div>';
+  c.querySelector('.ic').onclick=()=>showPane('map');
+  ['a','b'].forEach(k=>{
+    const w=el('div','slot'),i=el('input'),u=el('button','pill'),l=el('div','sl');
+    i.type='search';i.autocomplete='off';i.id='cmpi_'+k;u.type='button';u.id='cmpu_'+k;l.id='cmpl_'+k;
+    i.oninput=()=>{clearTimeout(w._t);const v=i.value.trim();if(v.length<2){l.innerHTML='';return}w._t=setTimeout(()=>cmpSearch(k,v),450)};
+    u.onclick=()=>{if(current)setCmp(k,current)};
+    w.append(i,u,l);c.querySelector('.slots').append(w);
+  });
+}
+function renderCmp(){
+  const c=$('#cmp');if(!c.firstChild)return;
+  c.querySelector('h2').textContent=t('cmp_title');
+  ['a','b'].forEach(k=>{$('#cmpi_'+k).placeholder=t(k==='a'?'cmp_a':'cmp_b');$('#cmpu_'+k).textContent=t('cmp_cur')});
+  if(cmpS.a&&cmpS.b)runCmp();else if(!$('#cmpout').firstChild||$('#cmpout').dataset.hint){const o=$('#cmpout');o.dataset.hint=1;o.textContent=t('cmp_hint')}
+}
+async function cmpSearch(k,v){
+  const l=$('#cmpl_'+k);l.innerHTML='';l.append(el('div','spin'));
+  try{
+    const res=await nom('/search',{q:v,limit:5,polygon_geojson:0});
+    let ps=res.map(toPlace);if(!ps.length)ps=await wdSearch(v);
+    l.innerHTML='';
+    if(!ps.length){l.append(el('small',null,t('none')));return}
+    ps.forEach(p=>{const b=el('button',null,p.name);b.type='button';b.append(el('small',null,p.sub));b.onclick=()=>setCmp(k,p);l.append(b)});
+  }catch{l.textContent=t('err')}
+}
+function setCmp(k,p){
+  cmpS[k]=p;$('#cmpi_'+k).value=p.name;$('#cmpl_'+k).innerHTML='';
+  if(cmpS.a&&cmpS.b)runCmp();
+}
+async function cmpData(p){
+  if(!p.wd&&p.wp){try{p.wd=await wpToWd(p.wp)}catch{}}
+  const f=p.wd?await getFacts(p).catch(()=>null):null;
+  const inf={p,facts:f,intro:'',secs:{}};
+  try{await loadWiki(inf,p)}catch{}
+  return inf;
+}
+async function runCmp(){
+  const out=$('#cmpout');delete out.dataset.hint;out.innerHTML='';out.append(el('div','spin big'));
+  const a=cmpS.a,b=cmpS.b;
+  try{
+    const[ia,ib]=await Promise.all([cmpData(a),cmpData(b)]);
+    if(cmpS.a!==a||cmpS.b!==b)return;
+    out.innerHTML='';
+    const head=el('div','chead');
+    for(const i of[ia,ib]){
+      const c=el('div','ccard');
+      if(i.facts&&typeof i.facts.flag==='string'){const im=el('img');im.src=commons(i.facts.flag,160);im.alt='';im.loading='lazy';im.onerror=()=>im.remove();c.append(im)}
+      c.append(el('b',null,i.p.name));if(i.facts&&i.facts.desc)c.append(el('small',null,i.facts.desc));head.append(c);
+    }
+    out.append(head);
+    const val=(i,k)=>{
+      if(k==='coord')return{text:`${i.p.lat.toFixed(2)}, ${i.p.lon.toFixed(2)}`};
+      if(k==='climate')return i.secs.climate?{text:cut(i.secs.climate,220)}:null;
+      return i.facts&&i.facts.facts[k]||null;
+    };
+    let rows=0;
+    for(const k of CMP_ROWS){
+      const va=val(ia,k),vb=val(ib,k);if(!va&&!vb)continue;rows++;
+      const r=el('div','crow');r.append(el('small',null,t(k)));
+      const vals=el('div','cvals');
+      const comparable=va&&vb&&va.num!=null&&vb.num!=null&&va.unit===vb.unit;
+      const mx=comparable?Math.max(Math.abs(va.num),Math.abs(vb.num))||1:0;
+      for(const v of[va,vb]){
+        const c=el('div','cv');c.append(el('span',null,v?v.text:'—'));
+        if(v&&v.date)c.append(el('small',null,` (${v.date})`));
+        if(comparable){const bar=el('div','bar');bar.style.width=Math.max(2,Math.abs(v.num)/mx*100)+'%';c.append(bar)}
+        vals.append(c);
+      }
+      r.append(vals);out.append(r);
+    }
+    if(!rows)out.append(el('div','empty',t('nodata')));
+    const s=el('div','src');s.append(document.createTextNode(t('sources')+': '));
+    [ia,ib].forEach((i,n)=>{if(i.facts){s.append(link('https://www.wikidata.org/wiki/'+i.facts.wd,'Wikidata '+(n?'B':'A')),document.createTextNode(' '))}if(i.wiki)s.append(link(i.wiki.url,'Wikipedia '+(n?'B':'A')),document.createTextNode(' '))});
+    s.append(document.createTextNode(` · ${t('retrieved')}: ${today()}`));out.append(s);
+  }catch{out.textContent=t('err')}
+}
+
+
+/* ====================== PHASE 3: REAL PHOTO SEARCH ======================
+   Wikimedia Commons is queried directly. No fabricated image URLs, AI claims,
+   or guessed photo coordinates. Commons metadata is retained for attribution.
+*/
+const photoState={place:null,items:[],shown:[],category:'All',offset:0,loading:false,zoom:1,active:0,seen:new Set(),request:0};
+const photoCats={
+ country:['All','Nature','Cities','Mountains','Rivers & lakes','Architecture','Landmarks','Tourism','Wildlife'],
+ city:['All','City views','Streets','Architecture','Famous places','Parks','Night views'],
+ mountain:['All','Mountain views','Summit','Surrounding landscape','Nature'],
+ river:['All','River views','Rainforest','Surrounding landscape','Nature'],
+ lake:['All','Lake views','Nature','Tourism'],
+ island:['All','Nature','Beaches','Architecture','Tourism'],
+ other:['All','Nature','Architecture','Landmarks','Tourism']
+};
+const photoTerms={
+ 'Nature':'nature landscape','Cities':'cities urban views','Mountains':'mountains','Rivers & lakes':'rivers lakes',
+ 'Architecture':'architecture buildings','Landmarks':'landmarks monuments','Tourism':'tourism travel',
+ 'Wildlife':'wildlife animals','City views':'city skyline panorama','Streets':'streets street photography',
+ 'Famous places':'landmarks attractions','Parks':'parks gardens','Night views':'night city skyline',
+ 'Mountain views':'mountain landscape','Summit':'mountain summit','Surrounding landscape':'surrounding landscape',
+ 'River views':'river landscape','Rainforest':'rainforest','Lake views':'lake landscape','Beaches':'beaches'
+};
+function photoKind(p){
+ const g=groupOf(p);
+ if(g==='place')return (p.at==='country'||p.typ==='country')?'country':'city';
+ return g;
+}
+function photoLabel(k){
+ const labels={
+  hy:{All:'Բոլորը',Nature:'Բնություն',Cities:'Քաղաքներ',Mountains:'Լեռներ','Rivers & lakes':'Գետեր և լճեր',Architecture:'Ճարտարապետություն',Landmarks:'Տեսարժան վայրեր',Tourism:'Զբոսաշրջություն',Wildlife:'Կենդանական աշխարհ','City views':'Քաղաքի տեսարաններ',Streets:'Փողոցներ','Famous places':'Հայտնի վայրեր',Parks:'Այգիներ','Night views':'Գիշերային տեսարաններ','Mountain views':'Լեռների տեսարաններ',Summit:'Գագաթ', 'Surrounding landscape':'Շրջակա բնություն','River views':'Գետի տեսարաններ',Rainforest:'Անձրևային անտառ','Lake views':'Լճի տեսարաններ',Beaches:'Լողափեր'},
+  ru:{All:'Все',Nature:'Природа',Cities:'Города',Mountains:'Горы','Rivers & lakes':'Реки и озёра',Architecture:'Архитектура',Landmarks:'Достопримечательности',Tourism:'Туризм',Wildlife:'Животный мир','City views':'Виды города',Streets:'Улицы','Famous places':'Известные места',Parks:'Парки','Night views':'Ночные виды','Mountain views':'Виды гор',Summit:'Вершина','Surrounding landscape':'Окрестности','River views':'Виды реки',Rainforest:'Тропический лес','Lake views':'Виды озера',Beaches:'Пляжи'},
+  en:{}
+ };
+ return (labels[lang]||{})[k]||k;
+}
+function renderPhotoCategories(){
+ const wrap=$('#photoCategories');wrap.innerHTML='';
+ const kind=photoKind(photoState.place||current||{});
+ (photoCats[kind]||photoCats.other).forEach(cat=>{
+  const b=el('button',photoState.category===cat?'on':'',photoLabel(cat));b.type='button';
+  b.onclick=()=>{photoState.category=cat;photoState.offset=0;photoState.items=[];photoState.seen.clear();renderPhotoCategories();loadPhotos(true)};
+  wrap.append(b);
+ });
+}
+function commonsSearchQuery(){
+ const p=photoState.place||current;if(!p)return '';
+ const cat=photoState.category==='All'?'':(photoTerms[photoState.category]||photoState.category);
+ return [p.name,cat,'filetype:bitmap'].filter(Boolean).join(' ');
+}
+function setPhotoStatus(message){$('#photoStatus').textContent=message}
+function commonsMeta(v){return v&&v.value?v.value.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim():''}
+function commonsCoords(meta){
+ const lat=parseFloat(commonsMeta(meta.GPSLatitude)),lon=parseFloat(commonsMeta(meta.GPSLongitude));
+ return Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180?{lat,lon}:null;
+}
+async function loadPhotos(reset){
+ if(photoState.loading)return;
+ const p=photoState.place||current;if(!p)return;
+ if(reset){photoState.offset=0;photoState.items=[];photoState.seen.clear();$('#photoGrid').innerHTML=''}
+ const seq=++photoState.request;photoState.loading=true;
+ $('#photoMore').hidden=true;setPhotoStatus(lang==='hy'?'Իրական լուսանկարները բեռնվում են…':lang==='ru'?'Загружаются реальные фотографии…':'Loading real photographs…');
+ const skeletons=Array.from({length:6},()=>{const d=el('div','photo-tile photo-skeleton');return d});
+ if(reset)skeletons.forEach(x=>$('#photoGrid').append(x));
+ try{
+  const u=new URL('https://commons.wikimedia.org/w/api.php');
+  const params={action:'query',format:'json',origin:'*',generator:'search',gsrsearch:commonsSearchQuery(),gsrnamespace:6,gsrlimit:24,gsroffset:photoState.offset,
+   prop:'imageinfo',iiprop:'url|extmetadata',iiurlwidth:640};
+  Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));
+  const response=await fetch(u.toString(),{headers:{Accept:'application/json'}});
+  if(!response.ok)throw new Error('Wikimedia Commons HTTP '+response.status);
+  const data=await response.json();if(seq!==photoState.request)return;
+  skeletons.forEach(x=>x.remove());
+  const pages=Object.values(data.query?.pages||{});
+  const batch=pages.map(pg=>{
+   const ii=pg.imageinfo&&pg.imageinfo[0];if(!ii||!ii.thumburl||!ii.url)return null;
+   const meta=ii.extmetadata||{},coord=commonsCoords(meta);
+   return {id:pg.pageid,title:(pg.title||'').replace(/^File:/,''),thumb:ii.thumburl,original:ii.url,
+    description:commonsMeta(meta.ImageDescription),author:commonsMeta(meta.Artist)||'Unknown',
+    license:commonsMeta(meta.LicenseShortName)||commonsMeta(meta.UsageTerms)||'License details on source page',
+    source:ii.descriptionurl||('https://commons.wikimedia.org/wiki/'+encodeURIComponent(pg.title||'')),
+    coord,updated:ii.timestamp||'',width:ii.width||0,height:ii.height||0};
+  }).filter(Boolean).filter(x=>!photoState.seen.has(x.id));
+  batch.forEach(x=>photoState.seen.add(x.id));
+  photoState.items.push(...batch);photoState.offset+=pages.length;
+  renderPhotoGrid();
+  const more=!!data.continue;
+  $('#photoMore').hidden=!more;
+  setPhotoStatus(batch.length?`${photoState.items.length} ${lang==='ru'?'фото загружено':lang==='hy'?'լուսանկար բեռնված է':'photos loaded'} · Wikimedia Commons`: (lang==='ru'?'Подходящие фотографии не найдены. Попробуйте другую категорию.':lang==='hy'?'Համապատասխան լուսանկարներ չգտնվեցին։ Փորձեք այլ կատեգորիա։':'No matching photographs found. Try another category.'));
+ }catch(e){
+  skeletons.forEach(x=>x.remove());
+  if(seq===photoState.request)setPhotoStatus((lang==='ru'?'Ошибка загрузки: ':lang==='hy'?'Բեռնման սխալ՝ ':'Photo search error: ')+e.message);
+ }finally{if(seq===photoState.request)photoState.loading=false}
+}
+function renderPhotoGrid(){
+ const grid=$('#photoGrid');grid.innerHTML='';
+ let list=[...photoState.items];
+ if($('#photoSort').value==='recent')list.sort((a,b)=>(b.updated||'').localeCompare(a.updated||''));
+ list.forEach((im)=>{
+  const b=el('button','photo-tile');b.type='button';b.title=im.title;
+  const img=el('img');img.loading='lazy';img.decoding='async';img.alt=im.title;img.src=im.thumb;
+  img.onerror=()=>b.remove();
+  b.append(img,el('span',null,im.title));b.onclick=()=>openPhotoViewer(photoState.items.indexOf(im));grid.append(b);
+ });
+}
+function openPhotoViewer(index){
+ if(!photoState.items.length)return;
+ photoState.active=(index+photoState.items.length)%photoState.items.length;photoState.zoom=1;renderPhotoViewer();$('#photoViewer').classList.add('open');
+}
+function renderPhotoViewer(){
+ const im=photoState.items[photoState.active];if(!im)return;
+ $('#viewerImg').src=im.original;$('#viewerImg').alt=im.title;$('#viewerImg').style.transform=`scale(${photoState.zoom})`;
+ $('#viewerCount').textContent=`${photoState.active+1} / ${photoState.items.length}`;
+ const meta=$('#viewerMeta');meta.innerHTML='';
+ meta.append(el('b',null,im.title),document.createElement('br'));
+ meta.append(document.createTextNode(`${lang==='ru'?'Автор':'Author'}: ${im.author} · ${lang==='ru'?'Лицензия':'License'}: ${im.license} `));
+ if(im.description)meta.append(document.createTextNode(' · '+im.description));
+ meta.append(document.createElement('br'));
+ const src=link(im.source,lang==='ru'?'Страница источника':'Source page');meta.append(src);
+ if(im.coord){meta.append(document.createTextNode(` · GPS: ${im.coord.lat.toFixed(4)}, ${im.coord.lon.toFixed(4)} `));const jump=el('button',null,lang==='ru'?'Показать на карте':'Show on map');jump.type='button';jump.onclick=photoMapJump;meta.append(jump)}
+ $('#viewerOriginal').onclick=()=>window.open(im.original,'_blank','noopener');
+ $('#viewerPrev').disabled=photoState.items.length<2;$('#viewerNext').disabled=photoState.items.length<2;
+}
+function movePhoto(delta){if(!photoState.items.length)return;photoState.active=(photoState.active+delta+photoState.items.length)%photoState.items.length;photoState.zoom=1;renderPhotoViewer()}
+function photoMapJump(){
+ const im=photoState.items[photoState.active];if(!im||!im.coord)return toast(lang==='ru'?'У фото нет подтверждённых GPS-координат':'This photo has no verified GPS coordinates');
+ map.flyTo([im.coord.lat,im.coord.lon],13,{duration:1});placeMarker({lat:im.coord.lat,lon:im.coord.lon});
+}
+$('#photoRefresh').onclick=()=>loadPhotos(true);
+$('#photoAgain').onclick=()=>loadPhotos(true);
+$('#photoMore').onclick=()=>loadPhotos(false);
+$('#photoClose').onclick=()=>showPane('map');
+$('#photoSource').onchange=()=>loadPhotos(true);
+$('#photoSort').onchange=renderPhotoGrid;
+$('#viewerClose').onclick=()=>$('#photoViewer').classList.remove('open');
+$('#viewerPrev').onclick=()=>movePhoto(-1);$('#viewerNext').onclick=()=>movePhoto(1);
+$('#viewerZoomIn').onclick=()=>{photoState.zoom=Math.min(3,photoState.zoom+.25);renderPhotoViewer()};
+$('#viewerZoomOut').onclick=()=>{photoState.zoom=Math.max(1,photoState.zoom-.25);renderPhotoViewer()};
+$('#viewerOriginal').onclick=()=>{const im=photoState.items[photoState.active];if(im)window.open(im.original,'_blank','noopener')};
+$('#viewerImg').addEventListener('click',photoMapJump);
+$('#photoViewer').addEventListener('click',e=>{if(e.target===$('#photoViewer'))$('#photoViewer').classList.remove('open')});
+document.addEventListener('keydown',e=>{if(!$('#photoViewer').classList.contains('open'))return;if(e.key==='Escape')$('#photoViewer').classList.remove('open');if(e.key==='ArrowLeft')movePhoto(-1);if(e.key==='ArrowRight')movePhoto(1)});
+
+/* ---------- init ---------- */
+initChat();initCmp();
+applyTheme();applyLang();setLayer(LAYERS[layerKey]?layerKey:'std');
+if(!history_.length&&!favs.length)toast(t('empty'));
+})();
+</script>
+</body>
+</html>
